@@ -29,6 +29,137 @@ def login_user(username, password):
     return cursor.fetchone()
 
 # ================= CATEGORY FUNCTIONS =================
+
+def load_default_categories(user_id):
+    category_data = [
+        ("Salary","Base Salary","Income"),
+        ("Salary","Bonus","Income"),
+        ("Salary","Incentives","Income"),
+        ("Business","Freelance","Income"),
+        ("Business","Consulting","Income"),
+        ("Business","Side Hustle","Income"),
+        ("Returns","Interest Income","Income"),
+        ("Returns","Dividends","Income"),
+        ("Returns","Capital Gains","Income"),
+        ("Returns","Rental Income","Income"),
+        ("Returns","Business Profit Withdrawal","Income"),
+        ("Refund","Tax Refund","Income"),
+        ("Refund","Purchase Refund","Income"),
+        ("Other Income","Gifts Received","Income"),
+        ("Other Income","Misc Income","Income"),
+        ("Other Income","Reimbursements","Income"),
+
+        ("Food","Groceries","Expense"),
+        ("Food","Dining Out","Expense"),
+        ("Food","Snacks","Expense"),
+        ("Food","Coffee","Expense"),
+        ("Food","Food Delivery","Expense"),
+
+        ("Housing","Rent","Expense"),
+        ("Housing","Maintenance","Expense"),
+        ("Housing","Repairs","Expense"),
+        ("Housing","Furniture","Expense"),
+        ("Housing","Appliances","Expense"),
+
+        ("Utilities","Electricity","Expense"),
+        ("Utilities","Water","Expense"),
+        ("Utilities","Internet","Expense"),
+        ("Utilities","Mobile Recharge","Expense"),
+        ("Utilities","Gas","Expense"),
+        ("Utilities","DTH / Cable","Expense"),
+        ("Utilities","Society Charges","Expense"),
+
+        ("Transport","Fuel","Expense"),
+        ("Transport","Cab","Expense"),
+        ("Transport","Metro","Expense"),
+        ("Transport","Bus","Expense"),
+        ("Transport","Parking","Expense"),
+        ("Transport","Vehicle Maintenance","Expense"),
+        ("Transport","Toll","Expense"),
+        ("Transport","Insurance Renewal","Expense"),
+
+        ("Shopping","Clothes","Expense"),
+        ("Shopping","Shoes","Expense"),
+        ("Shopping","Gadgets","Expense"),
+        ("Shopping","Accessories","Expense"),
+        ("Shopping","Household Items","Expense"),
+
+        ("Entertainment","Movies","Expense"),
+        ("Entertainment","OTT Subscriptions","Expense"),
+        ("Entertainment","Events","Expense"),
+        ("Entertainment","Games","Expense"),
+        ("Entertainment","Music","Expense"),
+
+        ("Travel","Flights","Expense"),
+        ("Travel","Hotels","Expense"),
+        ("Travel","Local Travel","Expense"),
+        ("Travel","Travel Food","Expense"),
+        ("Travel","Travel Shopping","Expense"),
+
+        ("Health","Doctor Visit","Expense"),
+        ("Health","Medicines","Expense"),
+        ("Health","Tests","Expense"),
+        ("Health","Gym","Expense"),
+        ("Health","Supplements","Expense"),
+        ("Health","Therapy / Counseling","Expense"),
+
+        ("Family","Gifts","Expense"),
+        ("Family","Support","Expense"),
+        ("Family","Celebrations","Expense"),
+        ("Family","Functions","Expense"),
+
+        ("Education","Courses","Expense"),
+        ("Education","Books","Expense"),
+        ("Education","Certifications","Expense"),
+        ("Education","Workshops","Expense"),
+
+        ("Insurance","Health Insurance","Expense"),
+        ("Insurance","Vehicle Insurance","Expense"),
+        ("Insurance","Life Insurance","Expense"),
+
+        ("Loan","Home Loan EMI","Expense"),
+        ("Loan","Personal Loan EMI","Expense"),
+        ("Loan","Education Loan EMI","Expense"),
+        ("Loan","Credit Card Bill","Expense"),
+
+        ("Personal Care","Haircut","Expense"),
+        ("Personal Care","Grooming","Expense"),
+        ("Personal Care","Cosmetics","Expense"),
+        ("Personal Care","Hygiene","Expense"),
+
+        ("Equity","Stocks","Investment"),
+        ("Equity","Mutual Funds","Investment"),
+        ("Equity","ETFs","Investment"),
+        ("Retirement","PPF","Investment"),
+        ("Retirement","NPS","Investment"),
+        ("Debt","Bonds","Investment"),
+        ("Debt","Fixed Deposit","Investment"),
+        ("Debt","Liquid Funds","Investment"),
+        ("Gold","Digital Gold","Investment"),
+        ("Gold","Physical Gold","Investment"),
+        ("Alternative","REITs","Investment"),
+        ("Alternative","InvITs","Investment"),
+        ("Crypto","Crypto","Investment"),
+
+        ("Transfer","Bank Transfer","Transfer"),
+        ("Transfer","Wallet Transfer","Transfer"),
+        ("Transfer","Cash Withdrawal","Transfer"),
+        ("Transfer","Investment Transfer","Transfer"),
+    ]
+
+    for category, subcategory, type_ in category_data:
+        cursor.execute("""
+            SELECT 1 FROM categories
+            WHERE user_id=? AND category=? AND subcategory=?
+        """, (user_id, category, subcategory))
+
+        if not cursor.fetchone():
+            cursor.execute("""
+                INSERT INTO categories (user_id, category, subcategory, type)
+                VALUES (?, ?, ?, ?)
+            """, (user_id, category, subcategory, type_))
+    conn.commit()
+
 def get_categories(user_id, type_):
     cursor.execute("SELECT DISTINCT category FROM categories WHERE user_id=? AND type=?", (user_id, type_))
     return [x[0] for x in cursor.fetchall()]
@@ -219,7 +350,6 @@ else:
         c5, c6, c7 = st.columns(3)
         
         today = datetime.now()
-        # If viewing current month, divide by current day. If past month, divide by 30.
         day_count = today.day if selected_month == today.strftime('%Y-%m') else 30
         daily_burn = exp / day_count
         
@@ -257,14 +387,11 @@ else:
         if not b_df.empty:
             b_df["usage"] = b_df["spent"] / b_df["monthly_budget"]
             
-            # Warning notifications
             for _, r in b_df[b_df["usage"] >= 0.9].iterrows():
                 if r["usage"] >= 1.0: st.error(f"🚨 CRITICAL: Budget Blown for {r['category']}!")
                 else: st.warning(f"⚠️ ALERT: {r['category']} usage at {r['usage']:.0%}")
 
-            # CHART FIX: Using ONE axis so heights are comparable
             fig = go.Figure()
-            # Actual Bars
             fig.add_trace(go.Bar(
                 x=b_df["category"], 
                 y=b_df["spent"], 
@@ -272,9 +399,8 @@ else:
                 marker_color=[warning_color if x >= 0.9 else main_color for x in b_df["usage"]],
                 text=b_df["spent"],
                 textposition='auto',
-                texttemplate='₹%{text:,.0f}' # Shows exact number like 1,164
+                texttemplate='₹%{text:,.0f}' 
             ))
-            # Budget Line
             fig.add_trace(go.Scatter(
                 x=b_df["category"], 
                 y=b_df["monthly_budget"], 
