@@ -481,10 +481,10 @@ else:
             b_df["remaining"] = b_df["monthly_budget"] - b_df["spent"]
             st.dataframe(b_df[["category", "monthly_budget", "spent", "remaining"]], use_container_width=True)
 
+        # ================= NEW MATRIX BLOCK =================
         st.divider()
         st.subheader("Account-wise Category Contribution Matrix")
 
-        # Pull expense transactions for selected month
         matrix_df = pd.read_sql_query("""
             SELECT
                 t.category,
@@ -500,7 +500,6 @@ else:
 
         if not matrix_df.empty:
 
-            # Create pivot matrix
             pivot_matrix = matrix_df.pivot_table(
                 index="category",
                 columns="account_name",
@@ -509,7 +508,6 @@ else:
                 fill_value=0
             )
 
-            # Calculate contribution % row
             account_totals = pivot_matrix.sum(axis=0)
             grand_total = account_totals.sum()
 
@@ -517,20 +515,13 @@ else:
                 contribution_row = (account_totals / grand_total * 100).round(2)
                 pivot_matrix.loc["% Contribution"] = contribution_row
 
-            # Format currency rows (except percentage row)
-            formatted_matrix = pivot_matrix.copy()
-
-            for row in formatted_matrix.index:
-                if row != "% Contribution":
-                    formatted_matrix.loc[row] = formatted_matrix.loc[row].apply(
-                        lambda x: f"₹{x:,.0f}"
-                    )
-                else:
-                    formatted_matrix.loc[row] = formatted_matrix.loc[row].apply(
-                        lambda x: f"{x:.2f}%"
-                    )
-
-            st.dataframe(formatted_matrix, use_container_width=True)
+            st.dataframe(
+                pivot_matrix.style.format(
+                    lambda x: f"{x:.2f}%" if isinstance(x, float) and x <= 100 and "% Contribution" in pivot_matrix.index
+                    else f"₹{x:,.0f}"
+                ),
+                use_container_width=True
+            )
 
         else:
             st.info("No expense data available for this month.")
