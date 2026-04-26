@@ -16,11 +16,27 @@ cursor = conn.cursor()
 st.set_page_config(layout="wide", page_title="Finance Analytics Pro")
 
 # ================= USER FUNCTIONS =================
+
 def create_user(username, password):
     try:
-        cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, password))
+        cursor.execute(
+            "INSERT INTO users (username, password) VALUES (?, ?)",
+            (username, password)
+        )
+
         conn.commit()
+
+        cursor.execute(
+            "SELECT id FROM users WHERE username=?",
+            (username,)
+        )
+
+        user_id = cursor.fetchone()[0]
+
+        load_default_categories(user_id)
+
         return True
+
     except:
         return False
 
@@ -249,7 +265,16 @@ if not st.session_state.logged_in:
             else: st.error("Invalid credentials")
 else:
     user_id = st.session_state.user_id
-    menu = st.sidebar.radio("Navigation", ["Dashboard", "Add Transaction", "View Transactions", "Add Account", "View Accounts", "Set Budgets", "View Budgets"])
+    menu = st.sidebar.radio("Navigation", [
+        "Dashboard",
+        "Add Transaction",
+        "View Transactions",
+        "Add Account",
+        "View Accounts",
+        "Add Category",
+        "Set Budgets",
+        "View Budgets"
+    ])
 
     if menu == "Add Transaction":
         st.subheader("Add Transaction")
@@ -293,6 +318,47 @@ else:
             new_bal = c1.number_input(acc[1], value=float(acc[2]), key=f"bal_{acc[0]}")
             if c2.button("Update", key=f"btn_{acc[0]}"):
                 update_balance(acc[0], new_bal); st.success("Done")
+
+    elif menu == "Add Category":
+
+        st.subheader("Add Custom Category")
+
+        type_ = st.selectbox("Type", ["Income", "Expense", "Investment", "Transfer"])
+
+        existing_categories = get_categories(user_id, type_)
+
+        category = st.text_input("New Category Name")
+
+        if existing_categories:
+            parent_category = st.selectbox("Or Select Existing Category", ["None"] + existing_categories)
+        else:
+            parent_category = "None"
+
+        subcategory = st.text_input("Subcategory Name")
+
+        if st.button("Save Category"):
+
+            final_category = category if parent_category == "None" else parent_category
+
+            cursor.execute("""
+                SELECT 1 FROM categories
+                WHERE user_id=? AND category=? AND subcategory=?
+            """, (user_id, final_category, subcategory))
+
+            if cursor.fetchone():
+
+                st.error("This category + subcategory already exists.")
+
+            else:
+
+                cursor.execute("""
+                    INSERT INTO categories (user_id, category, subcategory, type)
+                    VALUES (?, ?, ?, ?)
+                """, (user_id, final_category, subcategory, type_))
+
+                conn.commit()
+
+                st.success("Category added successfully.")
 
     elif menu == "Set Budgets":
         cat = st.selectbox("Category", get_categories(user_id, "Expense"))
