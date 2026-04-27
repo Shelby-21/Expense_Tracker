@@ -510,7 +510,7 @@ else:
             b_df["remaining"] = b_df["monthly_budget"] - b_df["spent"]
             st.dataframe(b_df[["category", "monthly_budget", "spent", "remaining"]], use_container_width=True)
 
-        # ================= CONTRIBUTION MATRIX =================
+        # ================= ACCOUNT ALLOCATION MATRIX (FIXED) =================
         st.divider()
         st.subheader("Account-wise Category Contribution Matrix")
 
@@ -543,14 +543,21 @@ else:
                 contribution_row = (account_totals / grand_total * 100).round(2)
                 pivot_matrix.loc["% Contribution"] = contribution_row
 
-            display_df = pivot_matrix.copy()
+            # Convert entire dataframe safely to string display format
+            display_df = pivot_matrix.astype(object)
 
-            for row in display_df.index:
-                if row == "% Contribution":
-                    display_df.loc[row] = display_df.loc[row].apply(lambda x: f"{x:.2f}%")
-                else:
-                    display_df.loc[row] = display_df.loc[row].apply(lambda x: f"₹{x:,.0f}")
+            for col in display_df.columns:
+                display_df[col] = display_df[col].apply(
+                    lambda x: f"{x:.2f}%" if display_df.index[display_df[col] == x][0] == "% Contribution"
+                    else f"₹{x:,.0f}"
+                )
+
+            # Fix contribution row formatting separately (cleaner + safer)
+            if "% Contribution" in display_df.index:
+                for col in display_df.columns:
+                    display_df.loc["% Contribution", col] = f"{pivot_matrix.loc['% Contribution', col]:.2f}%"
 
             st.dataframe(display_df, use_container_width=True)
+
         else:
             st.info("No expense data available for this month.")
