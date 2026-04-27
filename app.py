@@ -7,8 +7,10 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from database import create_tables
 
+# Initialize database tables
 create_tables()
 
+# Database connection
 conn = psycopg2.connect(
     host=st.secrets["DB_HOST"],
     database=st.secrets["DB_NAME"],
@@ -31,20 +33,14 @@ def create_user(username, password):
             "INSERT INTO users (username, password) VALUES (%s, %s)",
             (username, password)
         )
-
         conn.commit()
-
         cursor.execute(
             "SELECT id FROM users WHERE username=%s",
             (username,)
         )
-
         user_id = cursor.fetchone()[0]
-
         load_default_categories(user_id)
-
         return True
-
     except:
         return False
 
@@ -325,61 +321,73 @@ if not st.session_state.logged_in:
             else: st.error("Invalid credentials")
 else:
     user_id = st.session_state.user_id
-    menu = st.sidebar.radio("Navigation", [
-        "Dashboard",
-        "Add Transaction",
-        "View Transactions",
-        "Add Account",
-        "View Accounts",
-        "Add Category",
-        "Set Budgets",
-        "View Budgets"
-    ])
+    
+    # HORIZONTAL NAVIGATION BAR (MAIN BODY)
+    menu = st.radio(
+        "",
+        ["Dashboard", "Transactions", "Accounts", "Categories", "Budgets"],
+        horizontal=True
+    )
 
-    if menu == "Add Transaction":
-        st.subheader("Add Transaction")
-        c1, c2 = st.columns(2)
-        with c1:
-            date = st.date_input("Date")
-            type_ = st.selectbox("Type", ["Income", "Expense", "Investment"])
-        with c2:
-            category = st.selectbox("Category", get_categories(user_id, type_))
-            subcategory = st.selectbox("Subcategory", get_subcategories(user_id, category))
-        acc_dict = {x[1]: x[0] for x in get_accounts(user_id)}
-        account = st.selectbox("Account", list(acc_dict.keys()))
-        amount = st.number_input("Amount", min_value=0.0)
-        notes = st.text_input("Notes")
-        if st.button("Save"):
-            add_transaction(user_id, date, type_, category, subcategory, acc_dict[account], amount, notes)
-            st.success("Saved")
+    st.divider()
 
-    elif menu == "View Transactions":
-        st.subheader("History")
-        for txn in get_transactions(user_id):
-            col1, col2 = st.columns([6,1])
-            col1.write(f"{txn[1]} | {txn[2]} | {txn[3]} → {txn[4]} | ₹{txn[6]:,.0f}")
-            if col2.button("Del", key=f"del_{txn[0]}"):
-                delete_transaction(txn[0])
-                st.rerun()
+    # ================= TRANSACTIONS HUB =================
+    if menu == "Transactions":
+        tab1, tab2 = st.tabs(["Add Transaction", "View Transactions"])
 
-    elif menu == "Add Account":
-        st.subheader("Add Account")
-        name = st.text_input("Name")
-        type_ = st.selectbox("Type", ["Savings Account", "Cash", "Credit Card", "Investment"])
-        balance = st.number_input("Balance")
-        include = st.checkbox("Net Worth?", value=True)
-        if st.button("Save"):
-            add_account(user_id, name, type_, balance, int(include))
-            st.success("Added")
+        with tab1:
+            st.subheader("Add Transaction")
+            c1, c2 = st.columns(2)
+            with c1:
+                date = st.date_input("Date")
+                type_ = st.selectbox("Type", ["Income", "Expense", "Investment"])
+            with c2:
+                category = st.selectbox("Category", get_categories(user_id, type_))
+                subcategory = st.selectbox("Subcategory", get_subcategories(user_id, category))
 
-    elif menu == "View Accounts":
-        for acc in get_accounts(user_id):
-            c1, c2 = st.columns([3,1])
-            new_bal = c1.number_input(acc[1], value=float(acc[2]), key=f"bal_{acc[0]}")
-            if c2.button("Update", key=f"btn_{acc[0]}"):
-                update_balance(acc[0], new_bal); st.success("Done")
+            acc_dict = {x[1]: x[0] for x in get_accounts(user_id)}
+            account = st.selectbox("Account", list(acc_dict.keys()))
+            amount = st.number_input("Amount", min_value=0.0)
+            notes = st.text_input("Notes")
 
-    elif menu == "Add Category":
+            if st.button("Save"):
+                add_transaction(user_id, date, type_, category, subcategory, acc_dict[account], amount, notes)
+                st.success("Saved")
+
+        with tab2:
+            st.subheader("Transaction History")
+            for txn in get_transactions(user_id):
+                col1, col2 = st.columns([6,1])
+                col1.write(f"{txn[1]} | {txn[2]} | {txn[3]} → {txn[4]} | ₹{txn[6]:,.0f}")
+                if col2.button("Del", key=f"del_{txn[0]}"):
+                    delete_transaction(txn[0])
+                    st.rerun()
+
+    # ================= ACCOUNTS HUB =================
+    elif menu == "Accounts":
+        tab1, tab2 = st.tabs(["Add Account", "View Accounts"])
+
+        with tab1:
+            st.subheader("Add Account")
+            name = st.text_input("Name")
+            type_ = st.selectbox("Type", ["Savings Account", "Cash", "Credit Card", "Investment"])
+            balance = st.number_input("Balance")
+            include = st.checkbox("Net Worth?", value=True)
+            if st.button("Save Account"):
+                add_account(user_id, name, type_, balance, int(include))
+                st.success("Added")
+
+        with tab2:
+            st.subheader("Account Balances")
+            for acc in get_accounts(user_id):
+                c1, c2 = st.columns([3,1])
+                new_bal = c1.number_input(acc[1], value=float(acc[2]), key=f"bal_{acc[0]}")
+                if c2.button("Update", key=f"btn_{acc[0]}"):
+                    update_balance(acc[0], new_bal)
+                    st.success("Updated")
+
+    # ================= CATEGORIES HUB =================
+    elif menu == "Categories":
         st.subheader("Add Custom Category")
         type_ = st.selectbox("Type", ["Income", "Expense", "Investment", "Transfer"])
         existing_categories = get_categories(user_id, type_)
@@ -405,21 +413,28 @@ else:
                 conn.commit()
                 st.success("Category added successfully.")
 
-    elif menu == "Set Budgets":
-        cat = st.selectbox("Category", get_categories(user_id, "Expense"))
-        amt = st.number_input("Budget")
-        if st.button("Save"):
-            set_budget(user_id, cat, amt); st.success("Saved")
+    # ================= BUDGETS HUB =================
+    elif menu == "Budgets":
+        tab1, tab2 = st.tabs(["Set Budget", "View Budgets"])
 
-    elif menu == "View Budgets":
-        for b in get_budgets(user_id): st.write(f"{b[0]} → ₹{b[1]:,.0f}")
+        with tab1:
+            cat = st.selectbox("Category", get_categories(user_id, "Expense"))
+            amt = st.number_input("Budget")
+            if st.button("Save Budget"):
+                set_budget(user_id, cat, amt)
+                st.success("Saved")
+
+        with tab2:
+            st.subheader("Budget Overview")
+            for b in get_budgets(user_id):
+                st.write(f"{b[0]} → ₹{b[1]:,.0f}")
 
     # ================= DASHBOARD =================
     elif menu == "Dashboard":
         st.subheader("📊 Financial Dashboard")
-        main_color = '#6366f1'   # Indigo
-        warning_color = '#ef4444' # Warning Red
-        budget_color = '#94a3b8'  # Slate
+        main_color = '#6366f1'
+        warning_color = '#ef4444'
+        budget_color = '#94a3b8'
 
         cursor.execute("SELECT DISTINCT TO_CHAR(date, 'YYYY-MM') as m FROM transactions WHERE user_id=%s ORDER BY m DESC", (user_id,))
         months = [row[0] for row in cursor.fetchall()]
@@ -476,7 +491,6 @@ else:
 
         st.divider()
         st.subheader("Budget vs Actual")
-        # COALESCE is the PostgreSQL standard replacement for IFNULL
         b_df = pd.read_sql_query("""
             SELECT b.category, b.monthly_budget, COALESCE(SUM(t.amount), 0) AS spent
             FROM budgets b
@@ -496,22 +510,47 @@ else:
             b_df["remaining"] = b_df["monthly_budget"] - b_df["spent"]
             st.dataframe(b_df[["category", "monthly_budget", "spent", "remaining"]], use_container_width=True)
 
+        # ================= CONTRIBUTION MATRIX =================
         st.divider()
         st.subheader("Account-wise Category Contribution Matrix")
+
         matrix_df = pd.read_sql_query("""
-            SELECT t.category, a.account_name, t.amount
+            SELECT
+                t.category,
+                a.account_name,
+                t.amount
             FROM transactions t
-            JOIN accounts a ON t.account = a.id
-            WHERE t.user_id = %s AND TO_CHAR(t.date, 'YYYY-MM') = %s AND t.type = 'Expense'
+            JOIN accounts a
+                ON t.account = a.id
+            WHERE t.user_id = %s
+              AND TO_CHAR(t.date, 'YYYY-MM') = %s
+              AND t.type = 'Expense'
         """, conn, params=(user_id, selected_month))
 
         if not matrix_df.empty:
-            pivot_matrix = matrix_df.pivot_table(index="category", columns="account_name", values="amount", aggfunc="sum", fill_value=0)
+            pivot_matrix = matrix_df.pivot_table(
+                index="category",
+                columns="account_name",
+                values="amount",
+                aggfunc="sum",
+                fill_value=0
+            )
+
             account_totals = pivot_matrix.sum(axis=0)
             grand_total = account_totals.sum()
+
             if grand_total > 0:
                 contribution_row = (account_totals / grand_total * 100).round(2)
                 pivot_matrix.loc["% Contribution"] = contribution_row
-            st.dataframe(pivot_matrix.style.format(lambda x: f"{x:.2f}%" if isinstance(x, float) and x <= 100 and "% Contribution" in pivot_matrix.index else f"₹{x:,.0f}"), use_container_width=True)
+
+            display_df = pivot_matrix.copy()
+
+            for row in display_df.index:
+                if row == "% Contribution":
+                    display_df.loc[row] = display_df.loc[row].apply(lambda x: f"{x:.2f}%")
+                else:
+                    display_df.loc[row] = display_df.loc[row].apply(lambda x: f"₹{x:,.0f}")
+
+            st.dataframe(display_df, use_container_width=True)
         else:
             st.info("No expense data available for this month.")
