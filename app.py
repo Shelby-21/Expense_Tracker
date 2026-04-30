@@ -489,6 +489,47 @@ else:
             if not cat_df.empty:
                 st.plotly_chart(px.bar(cat_df, x="category", y="amount", color_discrete_sequence=['#8b5cf6'], text_auto=',.0f').update_layout(template="plotly_dark", plot_bgcolor='rgba(0,0,0,0)'), use_container_width=True)
 
+        # ================= NEW: SUBCATEGORY ANALYSIS =================
+        st.divider()
+        st.subheader("Subcategory-wise Expense Analysis")
+
+        # Filter only expense rows for selected month
+        sub_df = df[df["type"].str.lower() == "expense"]
+
+        if not sub_df.empty:
+            # Category dropdown (only categories present in selected month)
+            selected_category = st.selectbox(
+                "Select Category for Detailed Analysis",
+                sorted(sub_df["category"].unique())
+            )
+
+            # Filter subcategories for selected category
+            subcategory_df = sub_df[sub_df["category"] == selected_category]
+
+            if not subcategory_df.empty:
+                sub_summary = (
+                    subcategory_df
+                    .groupby("subcategory")["amount"]
+                    .sum()
+                    .reset_index()
+                )
+
+                st.plotly_chart(
+                    px.pie(
+                        sub_summary,
+                        names="subcategory",
+                        values="amount",
+                        title=f"Subcategory Breakdown for {selected_category}",
+                        hole=0.4
+                    ).update_traces(textinfo="percent+label"),
+                    use_container_width=True
+                )
+            else:
+                st.info("No subcategory data available.")
+        else:
+            st.info("No expense data available for this month.")
+
+        # ================= BUDGET VS ACTUAL =================
         st.divider()
         st.subheader("Budget vs Actual")
         b_df = pd.read_sql_query("""
