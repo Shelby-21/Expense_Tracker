@@ -65,10 +65,8 @@ def load_default_categories(user_id):
         ("Insurance","Health Insurance","Expense"), ("Insurance","Vehicle Insurance","Expense"), ("Insurance","Life Insurance","Expense"),
         ("Loan","Home Loan EMI","Expense"), ("Loan","Personal Loan EMI","Expense"), ("Loan","Education Loan EMI","Expense"), ("Loan","Credit Card Bill","Expense"),
         ("Personal Care","Haircut","Expense"), ("Personal Care","Grooming","Expense"), ("Personal Care","Cosmetics","Expense"), ("Personal Care","Hygiene","Expense"),
-        ("Equity","Stocks","Investment"), ("Equity","Mutual Funds","Investment"), ("Equity","ETFs","Investment"),
-        ("Retirement","PPF","Investment"), ("Retirement","NPS","Investment"),
-        ("Debt","Bonds","Investment"), ("Debt","Fixed Deposit","Investment"), ("Debt","Liquid Funds","Investment"),
-        ("Gold","Digital Gold","Investment"), ("Gold","Physical Gold","Investment"),
+        ("Equity","Stocks","Investment"), ("Equity","Mutual Funds","Investment"), ("Equity","ETFs","Investment"), ("Retirement","PPF","Investment"), ("Retirement","NPS","Investment"),
+        ("Debt","Bonds","Investment"), ("Debt","Fixed Deposit","Investment"), ("Debt","Liquid Funds","Investment"), ("Gold","Digital Gold","Investment"), ("Gold","Physical Gold","Investment"),
         ("Alternative","REITs","Investment"), ("Alternative","InvITs","Investment"), ("Crypto","Crypto","Investment"),
         ("Transfer","Bank Transfer","Transfer"), ("Transfer","Wallet Transfer","Transfer"), ("Transfer","Cash Withdrawal","Transfer"), ("Transfer","Investment Transfer","Transfer")
     ]
@@ -99,47 +97,21 @@ def update_balance(account_id, new_balance):
     cursor.execute("UPDATE accounts SET opening_balance=%s WHERE id=%s", (new_balance, account_id))
     conn.commit()
 
-# ================= TRANSACTION ENGINE (COPY-PASTED FIX) =================
+# ================= TRANSACTION ENGINE (INJECTED FIX) =================
 def add_transaction(user_id, date, type_, category, subcategory, account_id, amount, notes):
-
-    # Handle transfers separately
     if category == "Transfer":
-
-        if "to" in notes.lower():
-            signed_amount = amount   # receiving account
-        else:
-            signed_amount = -amount  # sending account
-
+        signed_amount = amount
     else:
         signed_amount = -amount if type_ in ["Expense", "Investment"] else amount
 
     cursor.execute("""
-        INSERT INTO transactions
-        (user_id,date,type,category,subcategory,account,amount,signed_amount,tag,notes,created_at)
+        INSERT INTO transactions (user_id,date,type,category,subcategory,account,amount,signed_amount,tag,notes,created_at)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-    """, (
-        user_id,
-        date,
-        type_,
-        category,
-        subcategory,
-        account_id,
-        amount,
-        signed_amount,
-        "",
-        notes,
-        datetime.now()
-    ))
+    """, (user_id, date, type_, category, subcategory, account_id, amount, signed_amount, "", notes, datetime.now()))
 
-    cursor.execute(
-        "SELECT opening_balance FROM accounts WHERE id=%s",
-        (account_id,)
-    )
-
+    cursor.execute("SELECT opening_balance FROM accounts WHERE id=%s", (account_id,))
     balance = cursor.fetchone()[0]
-
     update_balance(account_id, balance + signed_amount)
-
     conn.commit()
 
 def delete_transaction(transaction_id):
@@ -153,6 +125,19 @@ def delete_transaction(transaction_id):
 
 def get_transactions(user_id):
     cursor.execute("SELECT id, date, type, category, subcategory, account, amount, notes FROM transactions WHERE user_id=%s ORDER BY date DESC", (user_id,))
+    return cursor.fetchall()
+
+# ================= BUDGET FUNCTIONS =================
+def set_budget(user_id, category, amount):
+    cursor.execute("SELECT id FROM budgets WHERE user_id=%s AND category=%s", (user_id, category))
+    if cursor.fetchone():
+        cursor.execute("UPDATE budgets SET monthly_budget=%s WHERE user_id=%s AND category=%s", (amount, user_id, category))
+    else:
+        cursor.execute("INSERT INTO budgets (user_id, category, monthly_budget) VALUES (%s, %s, %s)", (user_id, category, amount))
+    conn.commit()
+
+def get_budgets(user_id):
+    cursor.execute("SELECT category, monthly_budget FROM budgets WHERE user_id=%s", (user_id,))
     return cursor.fetchall()
 
 # ================= SESSION =================
@@ -198,7 +183,8 @@ else:
                 type_ = st.selectbox("Type", ["Income", "Expense", "Investment", "Transfer"])
             with c2:
                 if type_ == "Transfer":
-                    category, subcategory = "Transfer", "Internal Movement"
+                    category, subcategory = "Transfer", "Transfer Out"
+                    st.info("Category set to Transfer for internal movement.")
                 else:
                     category = st.selectbox("Category", get_categories(user_id, type_))
                     subcategory = st.selectbox("Subcategory", get_subcategories(user_id, category))
@@ -217,10 +203,8 @@ else:
             if st.button("Save"):
                 if type_ == "Transfer":
                     from_id, to_id = acc_dict[from_acc], acc_dict[to_acc]
-                    # Source Note: No 'to' to trigger deduction
-                    add_transaction(user_id, date, "Expense", "Transfer", "Transfer Out", from_id, amount, f"Debit: Sending from {from_acc} | {notes}")
-                    # Destination Note: Has 'to' to trigger addition
-                    add_transaction(user_id, date, "Income", "Transfer", "Transfer In", to_id, amount, f"Credit: Transfer to {to_acc} | {notes}")
+                    add_transaction(user_id, date, "Expense", "Transfer", "Transfer Out", from_id, amount, f"Transfer to {to_acc} | {notes}")
+                    add_transaction(user_id, date, "Income", "Transfer", "Transfer In", to_id, amount, f"Transfer from {from_acc} | {notes}")
                     st.success("Transfer completed")
                 else:
                     add_transaction(user_id, date, type_, category, subcategory, acc_dict[account], amount, notes)
@@ -235,7 +219,27 @@ else:
                     delete_transaction(txn[0])
                     st.rerun()
 
-    # ================= DASHBOARD (KPI CONVERSION FIX) =================
+    # ================= ACCOUNTS HUB =================
+    elif menu == "Accounts":
+        tab1, tab2 = st.tabs(["Add Account", "View Accounts"])
+        with tab1:
+            st.subheader("Add Account")
+            name = st.text_input("Name")
+            type_acc = st.selectbox("Type", ["Savings Account", "Cash", "Credit Card", "Investment"])
+            balance = st.number_input("Balance")
+            include = st.checkbox("Net Worth?", value=True)
+            if st.button("Save Account"):
+                add_account(user_id, name, type_acc, balance, int(include))
+                st.success("Added")
+        with tab2:
+            st.subheader("Account Balances")
+            for acc in get_accounts(user_id):
+                c1, c2 = st.columns([3,1])
+                new_bal = c1.number_input(acc[1], value=float(acc[2]), key=f"bal_{acc[0]}")
+                if c2.button("Update", key=f"btn_{acc[0]}"):
+                    update_balance(acc[0], new_bal); st.success("Updated")
+
+    # ================= DASHBOARD =================
     elif menu == "Dashboard":
         st.subheader("📊 Financial Dashboard")
         main_color, warning_color = '#6366f1', '#ef4444'
@@ -257,7 +261,7 @@ else:
         inc, exp, inv = get_summary_clean(user_id, selected_month)
         sav = inc - exp - inv
 
-        # LAST MONTH COMPARISON (KPI CONVERSION)
+        # CALCULATE DELTAS FOR COMPARISON
         idx = months.index(selected_month)
         deltas = {"inc": None, "exp": None}
         if idx < len(months) - 1:
@@ -266,14 +270,14 @@ else:
             deltas['exp'] = exp - p_exp
 
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Income", f"₹{inc:,.0f}", delta=f"₹{deltas['inc']:,.0f}" if deltas['inc'] is not None else None)
-        c2.metric("Expenses", f"₹{exp:,.0f}", delta=f"₹{deltas['exp']:,.0f}" if deltas['exp'] is not None else None, delta_color="inverse")
+        c1.metric("Income (Net)", f"₹{inc:,.0f}", delta=f"₹{deltas['inc']:,.0f}" if deltas['inc'] is not None else None)
+        c2.metric("Expenses (Net)", f"₹{exp:,.0f}", delta=f"₹{deltas['exp']:,.0f}" if deltas['exp'] is not None else None, delta_color="inverse")
         c3.metric("Investments", f"₹{inv:,.0f}")
         c4.metric("Savings", f"₹{sav:,.0f}")
 
         st.divider()
 
-        # KPIs RESTORED
+        # KPIs: Burn, Cashflow, Assets
         c5, c6, c7 = st.columns(3)
         today = datetime.now()
         day_count = today.day if selected_month == today.strftime('%Y-%m') else 30
@@ -297,7 +301,7 @@ else:
             if not cat_df.empty:
                 st.plotly_chart(px.bar(cat_df, x="category", y="amount", color_discrete_sequence=['#8b5cf6'], text_auto=',.0f').update_layout(template="plotly_dark"), use_container_width=True)
 
-        # Matrix (Fixed Column-by-Column Formatting)
+        # Matrix
         st.divider()
         st.subheader("Account-wise Category Contribution Matrix")
         matrix_df = pd.read_sql_query("""
