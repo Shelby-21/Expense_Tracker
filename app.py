@@ -370,7 +370,7 @@ else:
         with tab1:
             st.subheader("Add Account")
             name = st.text_input("Name")
-            type_ = st.selectbox("Type", ["Savings Account", "Cash", "Credit Card", "Investment"])
+            type_ = st.selectbox("Type", ["Savings Account","Salary Account","Current Account", "Cash", "Credit Card", "Investment"])
             balance = st.number_input("Balance")
             include = st.checkbox("Net Worth?", value=True)
             if st.button("Save Account"):
