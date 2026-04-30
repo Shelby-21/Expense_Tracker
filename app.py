@@ -340,25 +340,44 @@ else:
             c1, c2 = st.columns(2)
             with c1:
                 date = st.date_input("Date")
-                type_ = st.selectbox("Type", ["Income", "Expense", "Investment"])
+                type_ = st.selectbox("Type", ["Income", "Expense", "Investment", "Transfer"])
             with c2:
-                category = st.selectbox("Category", get_categories(user_id, type_))
-                subcategory = st.selectbox("Subcategory", get_subcategories(user_id, category))
+                if type_ == "Transfer":
+                    category, subcategory = "Transfer", "Transfer Out"
+                    st.info("Category set to Transfer for internal movement.")
+                else:
+                    category = st.selectbox("Category", get_categories(user_id, type_))
+                    subcategory = st.selectbox("Subcategory", get_subcategories(user_id, category))
 
             acc_dict = {x[1]: x[0] for x in get_accounts(user_id)}
-            account = st.selectbox("Account", list(acc_dict.keys()))
+            
+            if type_ == "Transfer":
+                col_a, col_b = st.columns(2)
+                from_account = col_a.selectbox("From Account", list(acc_dict.keys()), key="from_account")
+                to_account = col_b.selectbox("To Account", [acc for acc in acc_dict.keys() if acc != from_account], key="to_account")
+            else:
+                account = st.selectbox("Account", list(acc_dict.keys()))
+
             amount = st.number_input("Amount", min_value=0.0)
             notes = st.text_input("Notes")
 
             if st.button("Save"):
-                add_transaction(user_id, date, type_, category, subcategory, acc_dict[account], amount, notes)
-                st.success("Saved")
+                if type_ == "Transfer":
+                    from_id, to_id = acc_dict[from_account], acc_dict[to_account]
+                    # Deduct from source
+                    add_transaction(user_id, date, "Expense", "Transfer", "Transfer Out", from_id, amount, f"Transfer to {to_account} | {notes}")
+                    # Add to destination
+                    add_transaction(user_id, date, "Income", "Transfer", "Transfer In", to_id, amount, f"Transfer from {from_account} | {notes}")
+                    st.success("Transfer completed")
+                else:
+                    add_transaction(user_id, date, type_, category, subcategory, acc_dict[account], amount, notes)
+                    st.success("Saved")
 
         with tab2:
             st.subheader("Transaction History")
             for txn in get_transactions(user_id):
                 col1, col2 = st.columns([6,1])
-                col1.write(f"{txn[1]} | {txn[2]} | {txn[3]} → {txn[4]} | ₹{txn[6]:,.0f}")
+                col1.write(f"{txn[1]} | {txn[2]} | {txn[3]} → {txn[4]} | ₹{txn[6]:,.0f} ({txn[7]})")
                 if col2.button("Del", key=f"del_{txn[0]}"):
                     delete_transaction(txn[0])
                     st.rerun()
@@ -370,11 +389,11 @@ else:
         with tab1:
             st.subheader("Add Account")
             name = st.text_input("Name")
-            type_ = st.selectbox("Type", ["Savings Account", "Salary Account","Current Account","Cash", "Credit Card", "Investment"])
+            type_acc = st.selectbox("Type", ["Savings Account", "Cash", "Credit Card", "Investment"])
             balance = st.number_input("Balance")
             include = st.checkbox("Net Worth?", value=True)
             if st.button("Save Account"):
-                add_account(user_id, name, type_, balance, int(include))
+                add_account(user_id, name, type_acc, balance, int(include))
                 st.success("Added")
 
         with tab2:
@@ -389,27 +408,27 @@ else:
     # ================= CATEGORIES HUB =================
     elif menu == "Categories":
         st.subheader("Add Custom Category")
-        type_ = st.selectbox("Type", ["Income", "Expense", "Investment", "Transfer"])
-        existing_categories = get_categories(user_id, type_)
-        category = st.text_input("New Category Name")
+        type_cat = st.selectbox("Type", ["Income", "Expense", "Investment", "Transfer"])
+        existing_categories = get_categories(user_id, type_cat)
+        category_name = st.text_input("New Category Name")
         if existing_categories:
             parent_category = st.selectbox("Or Select Existing Category", ["None"] + existing_categories)
         else:
             parent_category = "None"
-        subcategory = st.text_input("Subcategory Name")
+        subcategory_name = st.text_input("Subcategory Name")
         if st.button("Save Category"):
-            final_category = category if parent_category == "None" else parent_category
+            final_category = category_name if parent_category == "None" else parent_category
             cursor.execute("""
                 SELECT 1 FROM categories
                 WHERE user_id=%s AND category=%s AND subcategory=%s
-            """, (user_id, final_category, subcategory))
+            """, (user_id, final_category, subcategory_name))
             if cursor.fetchone():
                 st.error("This category + subcategory already exists.")
             else:
                 cursor.execute("""
                     INSERT INTO categories (user_id, category, subcategory, type)
                     VALUES (%s, %s, %s, %s)
-                """, (user_id, final_category, subcategory, type_))
+                """, (user_id, final_category, subcategory_name, type_cat))
                 conn.commit()
                 st.success("Category added successfully.")
 
@@ -418,10 +437,10 @@ else:
         tab1, tab2 = st.tabs(["Set Budget", "View Budgets"])
 
         with tab1:
-            cat = st.selectbox("Category", get_categories(user_id, "Expense"))
-            amt = st.number_input("Budget")
+            cat_b = st.selectbox("Category", get_categories(user_id, "Expense"))
+            amt_b = st.number_input("Budget")
             if st.button("Save Budget"):
-                set_budget(user_id, cat, amt)
+                set_budget(user_id, cat_b, amt_b)
                 st.success("Saved")
 
         with tab2:
@@ -443,87 +462,54 @@ else:
             st.stop()
         selected_month = st.selectbox("Select Month", months)
 
-        df = pd.read_sql_query("SELECT * FROM transactions WHERE user_id=%s AND TO_CHAR(date, 'YYYY-MM')=%s", conn, params=(user_id, selected_month))
-        
-        def get_summary(uid, m):
-            cursor.execute("SELECT type, SUM(amount) FROM transactions WHERE user_id=%s AND TO_CHAR(date, 'YYYY-MM')=%s GROUP BY type", (uid, m))
+        # FIXED SQL: Exclude 'Transfer' category from summary totals to prevent metric inflation
+        def get_summary_clean(uid, m):
+            cursor.execute("""
+                SELECT type, SUM(amount) 
+                FROM transactions 
+                WHERE user_id=%s AND TO_CHAR(date, 'YYYY-MM')=%s AND category != 'Transfer'
+                GROUP BY type
+            """, (uid, m))
             d = dict(cursor.fetchall())
             return d.get("Income", 0), d.get("Expense", 0), d.get("Investment", 0)
 
-        inc, exp, inv = get_summary(user_id, selected_month)
+        inc, exp, inv = get_summary_clean(user_id, selected_month)
         sav = inc - exp - inv
 
-        idx = months.index(selected_month)
-        deltas = {"inc": None, "exp": None}
-        if idx < len(months) - 1:
-            p_inc, p_exp, _ = get_summary(user_id, months[idx+1])
-            deltas['inc'] = inc - p_inc
-            deltas['exp'] = exp - p_exp
-
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Income", f"₹{inc:,.0f}", delta=f"₹{deltas['inc']:,.0f}" if deltas['inc'] is not None else None)
-        c2.metric("Expenses", f"₹{exp:,.0f}", delta=f"₹{deltas['exp']:,.0f}" if deltas['exp'] is not None else None, delta_color="inverse")
+        c1.metric("Income (Net)", f"₹{inc:,.0f}")
+        c2.metric("Expenses (Net)", f"₹{exp:,.0f}")
         c3.metric("Investments", f"₹{inv:,.0f}")
         c4.metric("Savings", f"₹{sav:,.0f}")
 
-        st.divider()
-        c5, c6, c7 = st.columns(3)
-        today = datetime.now()
-        day_count = today.day if selected_month == today.strftime('%Y-%m') else 30
-        daily_burn = exp / day_count
-        c5.metric("Daily Burn Rate", f"₹{daily_burn:,.0f}", help="Avg daily spend for the selected period.")
-        c6.metric("Net Cashflow", f"₹{inc - exp:,.0f}")
-        cursor.execute("SELECT SUM(opening_balance) FROM accounts WHERE user_id=%s AND include_in_networth=1", (user_id,))
-        assets = cursor.fetchone()[0] or 0
-        c7.metric("Total Assets", f"₹{assets:,.0f}")
-
+        # Dataframes excluding Transfers for visualization
+        df_clean = pd.read_sql_query("""
+            SELECT * FROM transactions 
+            WHERE user_id=%s AND TO_CHAR(date, 'YYYY-MM')=%s AND category != 'Transfer'
+        """, conn, params=(user_id, selected_month))
+        
         st.divider()
         col_l, col_r = st.columns(2)
         with col_l:
-            st.subheader("Composition")
-            comp_df = pd.DataFrame({"Type": ["Income", "Expense", "Investment", "Savings"], "Amount": [inc, exp, inv, max(0, sav)]})
+            st.subheader("Composition (Excl. Transfers)")
+            comp_df = pd.DataFrame({"Type": ["Income", "Expense", "Investment"], "Amount": [inc, exp, inv]})
             st.plotly_chart(px.bar(comp_df, x="Type", y="Amount", color_discrete_sequence=[main_color], text_auto=',.0f').update_layout(template="plotly_dark", plot_bgcolor='rgba(0,0,0,0)'), use_container_width=True)
         with col_r:
             st.subheader("Category Breakdown")
-            cat_df = df[df["type"].str.lower() == "expense"].groupby("category")["amount"].sum().reset_index()
+            cat_df = df_clean[df_clean["type"].str.lower() == "expense"].groupby("category")["amount"].sum().reset_index()
             if not cat_df.empty:
                 st.plotly_chart(px.bar(cat_df, x="category", y="amount", color_discrete_sequence=['#8b5cf6'], text_auto=',.0f').update_layout(template="plotly_dark", plot_bgcolor='rgba(0,0,0,0)'), use_container_width=True)
 
-        # ================= NEW: SUBCATEGORY ANALYSIS =================
+        # ================= SUBCATEGORY ANALYSIS =================
         st.divider()
         st.subheader("Subcategory-wise Expense Analysis")
-
-        # Filter only expense rows for selected month
-        sub_df = df[df["type"].str.lower() == "expense"]
-
+        sub_df = df_clean[df_clean["type"].str.lower() == "expense"]
         if not sub_df.empty:
-            # Category dropdown (only categories present in selected month)
-            selected_category = st.selectbox(
-                "Select Category for Detailed Analysis",
-                sorted(sub_df["category"].unique())
-            )
-
-            # Filter subcategories for selected category
+            selected_category = st.selectbox("Select Category for Detailed Analysis", sorted(sub_df["category"].unique()))
             subcategory_df = sub_df[sub_df["category"] == selected_category]
-
             if not subcategory_df.empty:
-                sub_summary = (
-                    subcategory_df
-                    .groupby("subcategory")["amount"]
-                    .sum()
-                    .reset_index()
-                )
-
-                st.plotly_chart(
-                    px.pie(
-                        sub_summary,
-                        names="subcategory",
-                        values="amount",
-                        title=f"Subcategory Breakdown for {selected_category}",
-                        hole=0.4
-                    ).update_traces(textinfo="percent+label"),
-                    use_container_width=True
-                )
+                sub_summary = subcategory_df.groupby("subcategory")["amount"].sum().reset_index()
+                st.plotly_chart(px.pie(sub_summary, names="subcategory", values="amount", title=f"Subcategory Breakdown for {selected_category}", hole=0.4).update_traces(textinfo="percent+label"), use_container_width=True)
             else:
                 st.info("No subcategory data available.")
         else:
@@ -566,20 +552,13 @@ else:
             WHERE t.user_id = %s
               AND TO_CHAR(t.date, 'YYYY-MM') = %s
               AND t.type = 'Expense'
+              AND t.category != 'Transfer'
         """, conn, params=(user_id, selected_month))
 
         if not matrix_df.empty:
-            pivot_matrix = matrix_df.pivot_table(
-                index="category",
-                columns="account_name",
-                values="amount",
-                aggfunc="sum",
-                fill_value=0
-            )
-
+            pivot_matrix = matrix_df.pivot_table(index="category", columns="account_name", values="amount", aggfunc="sum", fill_value=0)
             account_totals = pivot_matrix.sum(axis=0)
             grand_total = account_totals.sum()
-
             if grand_total > 0:
                 contribution_row = (account_totals / grand_total * 100).round(2)
                 pivot_matrix.loc["% Contribution"] = contribution_row
@@ -599,6 +578,5 @@ else:
                     display_df.loc["% Contribution", col] = f"{pivot_matrix.loc['% Contribution', col]:.2f}%"
 
             st.dataframe(display_df, use_container_width=True)
-
         else:
             st.info("No expense data available for this month.")
