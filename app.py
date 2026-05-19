@@ -200,7 +200,11 @@ def get_subcategories(user_id, category):
 # ================= ACCOUNT FUNCTIONS =================
 def get_accounts(user_id):
     cursor.execute(
-        "SELECT id, account_name, opening_balance FROM accounts WHERE user_id=%s",
+        """
+        SELECT id, account_name, opening_balance, include_in_networth
+        FROM accounts
+        WHERE user_id=%s
+        """,
         (user_id,)
     )
     return cursor.fetchall()
@@ -217,6 +221,18 @@ def update_balance(account_id, new_balance):
     cursor.execute(
         "UPDATE accounts SET opening_balance=%s WHERE id=%s",
         (new_balance, account_id)
+    )
+    conn.commit()
+
+def update_account_settings(account_id, new_balance, include_networth):
+    cursor.execute(
+        """
+        UPDATE accounts
+        SET opening_balance=%s,
+            include_in_networth=%s
+        WHERE id=%s
+        """,
+        (new_balance, include_networth, account_id)
     )
     conn.commit()
 
@@ -377,14 +393,28 @@ else:
                 add_account(user_id, name, type_, balance, int(include))
                 st.success("Added")
 
-        with tab2:
-            st.subheader("Account Balances")
-            for acc in get_accounts(user_id):
-                c1, c2 = st.columns([3,1])
-                new_bal = c1.number_input(acc[1], value=float(acc[2]), key=f"bal_{acc[0]}")
-                if c2.button("Update", key=f"btn_{acc[0]}"):
-                    update_balance(acc[0], new_bal)
-                    st.success("Updated")
+       with tab2:
+           st.subheader("Account Balances")
+           for acc in get_accounts(user_id):
+               c1,c2,c3=st.columns([3,1,1])
+               new_bal=c1.number_input(
+                   acc[1],
+                   value=float(acc[2]),
+                   key=f"bal_{acc[0]}"
+                )
+
+                include_networth=c2.checkbox(
+                    "Net Worth",
+                    value=bool(acc[3]),
+                    key=f"networth_{acc[0]}"
+                )
+               if c3.button("Update", key=f"btn_{acc[0]}"):
+                   update_account_settings(
+                       acc[0],
+                       new_bal,
+                       int(include_networth)
+                   )
+                   st.success("Updated")
 
     # ================= CATEGORIES HUB =================
     elif menu == "Categories":
