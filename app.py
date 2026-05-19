@@ -372,9 +372,21 @@ else:
 
         with tab2:
             st.subheader("Transaction History")
+
+            acc_map = {x[0]: x[1] for x in get_accounts(user_id)}
+
             for txn in get_transactions(user_id):
+
                 col1, col2 = st.columns([6,1])
-                col1.write(f"{txn[1]} | {txn[2]} | {txn[3]} → {txn[4]} | ₹{txn[6]:,.0f}")
+
+                account_name = acc_map.get(txn[5], "Unknown Account")
+
+                note_text = f" | Note: {txn[7]}" if txn[7] else ""
+
+                col1.write(
+                    f"{txn[1]} | {txn[2]} | {txn[3]} → {txn[4]} | {account_name} | ₹{txn[6]:,.0f}{note_text}"
+                )
+
                 if col2.button("Del", key=f"del_{txn[0]}"):
                     delete_transaction(txn[0])
                     st.rerun()
