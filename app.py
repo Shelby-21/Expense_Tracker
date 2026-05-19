@@ -394,13 +394,13 @@ else:
                 st.success("Added")
 
         with tab2:
-           st.subheader("Account Balances")
-           for acc in get_accounts(user_id):
-               c1,c2,c3=st.columns([3,1,1])
-               new_bal=c1.number_input(
-                   acc[1],
-                   value=float(acc[2]),
-                   key=f"bal_{acc[0]}"
+            st.subheader("Account Balances")
+            for acc in get_accounts(user_id):
+                c1,c2,c3=st.columns([3,1,1])
+                new_bal=c1.number_input(
+                    acc[1],
+                    value=float(acc[2]),
+                    key=f"bal_{acc[0]}"
                 )
 
                 include_networth=c2.checkbox(
@@ -408,13 +408,13 @@ else:
                     value=bool(acc[3]),
                     key=f"networth_{acc[0]}"
                 )
-               if c3.button("Update", key=f"btn_{acc[0]}"):
-                   update_account_settings(
-                       acc[0],
-                       new_bal,
-                       int(include_networth)
-                   )
-                   st.success("Updated")
+                if c3.button("Update", key=f"btn_{acc[0]}"):
+                    update_account_settings(
+                        acc[0],
+                        new_bal,
+                        int(include_networth)
+                    )
+                    st.success("Updated")
 
     # ================= CATEGORIES HUB =================
     elif menu == "Categories":
