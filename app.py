@@ -393,7 +393,7 @@ else:
                 add_account(user_id, name, type_, balance, int(include))
                 st.success("Added")
 
-       with tab2:
+        with tab2:
            st.subheader("Account Balances")
            for acc in get_accounts(user_id):
                c1,c2,c3=st.columns([3,1,1])
